@@ -1,4 +1,5 @@
-export type Languages = 'es' | 'en';
+export const LANGUAGES = ['es', 'en', 'pt', 'fr'] as const;
+export type Languages = typeof LANGUAGES[number];
 export type SDKs =
   | 'upload'
   | 'upload-v2'

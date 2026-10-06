@@ -1,4 +1,11 @@
-import { TAucoSDK, Config, SDKTypeObjectKeys, SDKs, EnvType } from './types';
+import {
+  TAucoSDK,
+  Config,
+  SDKTypeObjectKeys,
+  SDKs,
+  EnvType,
+  LANGUAGES,
+} from './types';
 function uuid() {
   const d = new Date();
   const s = d.toISOString().replaceAll(':', '-');
@@ -17,9 +24,11 @@ const parametersValidation = (params: Config) => {
   if (!params.iframeId) {
     throw new Error('Could not start SDK, iframeId is missing');
   }
-  if (!['es', 'en'].includes(params?.language)) {
+  if (!LANGUAGES.includes(params?.language)) {
     throw new Error(
-      "Could not start SDK, language is missing or invalid, available options are 'es' and 'en' "
+      `Could not start SDK, language is missing or invalid, available options are ${LANGUAGES.map(
+        language => `'${language}'`
+      ).join(', ')}`
     );
   }
   if (params.sdkType === 'upload' || params.sdkType === 'attachments') {
