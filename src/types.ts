@@ -26,6 +26,12 @@ export type SDKEvents = {
   onSDKBack?: () => void;
   onSDKClose: (documentId?: string, redirectTo?: string) => void;
   onSDKFinish?: () => void;
+  /**
+   * Called when handling a message from the SDK fails: a missing callback
+   * the SDK needs (onSDKToken, onSDKPay) or an error thrown by one of your
+   * callbacks. Without it, the error is logged with console.error.
+   */
+  onSDKError?: (error: Error) => void;
   onSDKToken?: () => Promise<string>;
   onSDKPay?: (data: {
     code: string;

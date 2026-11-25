@@ -234,3 +234,104 @@ describe('message filtering', () => {
     expect(config.events.onSDKReady).not.toHaveBeenCalled();
   });
 });
+
+describe('error handling', () => {
+  it('reports a missing onSDKToken to onSDKError', async () => {
+    const onSDKError = jest.fn();
+    const { fromFrame } = mount(
+      signConfig({
+        events: { onSDKReady: jest.fn(), onSDKClose: jest.fn(), onSDKError },
+      })
+    );
+    await fromFrame({ type: 'token' });
+    expect(onSDKError).toHaveBeenCalledTimes(1);
+    expect(onSDKError.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect(onSDKError.mock.calls[0][0].message).toMatch(/onSDKToken/);
+  });
+
+  it('reports errors thrown by integrator callbacks', async () => {
+    const onSDKError = jest.fn();
+    const failure = new Error('boom');
+    const { fromFrame } = mount(
+      signConfig({
+        events: {
+          onSDKReady: () => {
+            throw failure;
+          },
+          onSDKClose: jest.fn(),
+          onSDKError,
+        },
+      })
+    );
+    await fromFrame({ ready: true });
+    expect(onSDKError).toHaveBeenCalledWith(failure);
+  });
+
+  it('logs to console.error when there is no onSDKError', async () => {
+    const consoleError = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+    const { fromFrame } = mount(signConfig());
+    await fromFrame({ type: 'token' });
+    expect(consoleError).toHaveBeenCalledTimes(1);
+    consoleError.mockRestore();
+  });
+
+  it('ignores messages without an object payload', async () => {
+    const onSDKError = jest.fn();
+    const config = signConfig({
+      events: { onSDKReady: jest.fn(), onSDKClose: jest.fn(), onSDKError },
+    });
+    const { fromFrame, toFrame } = mount(config);
+    await fromFrame(null);
+    await fromFrame('ready');
+    expect(onSDKError).not.toHaveBeenCalled();
+    expect(toFrame).not.toHaveBeenCalled();
+  });
+});
+
+describe('teardown', () => {
+  it('keeps listening after SDK-FINISH without a handler (sign closes next)', async () => {
+    const config = signConfig();
+    const { fromFrame } = mount(config);
+    await fromFrame({ type: 'SDK-FINISH' });
+    await fromFrame({ type: 'SDK-CLOSE', redirectTo: 'https://app.auco.ai' });
+    expect(config.events.onSDKClose).toHaveBeenCalledWith(
+      '',
+      'https://app.auco.ai',
+      []
+    );
+  });
+
+  it('keeps listening after SDK-BACK without a handler (upload-v2 restarts)', async () => {
+    const config = uploadConfig({ sdkType: 'upload-v2' });
+    const { fromFrame, toFrame } = mount(config);
+    await fromFrame({ type: 'SDK-BACK' });
+    await fromFrame({ ready: true });
+    expect(toFrame).toHaveBeenCalledTimes(1);
+    expect(config.events.onSDKReady).toHaveBeenCalledTimes(1);
+  });
+
+  it('replaces the previous session when started again on the same iframe', async () => {
+    const first = signConfig();
+    const second = signConfig();
+    const old = mount(first);
+    const current = mount(second);
+
+    await current.fromFrame({ ready: true });
+
+    expect(first.events.onSDKReady).not.toHaveBeenCalled();
+    expect(second.events.onSDKReady).toHaveBeenCalledTimes(1);
+
+    // The stale unsubscribe must not tear down the current session.
+    old.unsubscribe();
+    await current.fromFrame({ type: 'SDK-CLOSE', status: 'PENDING' });
+    expect(second.events.onSDKClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('can be unsubscribed more than once', () => {
+    const { unsubscribe } = mount(signConfig());
+    unsubscribe();
+    expect(() => unsubscribe()).not.toThrow();
+  });
+});

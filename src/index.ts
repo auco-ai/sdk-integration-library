@@ -14,13 +14,16 @@ function uuid() {
   const s = d.toISOString().replaceAll(':', '-');
   return s;
 }
+/**
+ * Teardown of the session currently attached to each iframe, so starting the
+ * SDK again on the same iframe replaces the previous session instead of
+ * stacking listeners.
+ */
+const activeSessions = new WeakMap<HTMLIFrameElement, () => void>();
+
 export const AucoSDK: TAucoSDK = params => {
   parametersValidation(params);
-  const messageFunc = setupEvents(params);
-  const unsuscribe = () => {
-    window.removeEventListener('message', messageFunc);
-  };
-  return unsuscribe;
+  return setupEvents(params);
 };
 
 const parametersValidation = (params: Config) => {
@@ -84,11 +87,41 @@ const setupEvents = (params: Config) => {
     throw new Error('Could not start SDK, invalid keyPublic');
   }
 
-  async function onMessage(event: MessageEvent) {
+  const unsubscribe = () => {
+    window.removeEventListener('message', onMessage);
+    if (activeSessions.get(iframe) === unsubscribe) {
+      activeSessions.delete(iframe);
+    }
+  };
+
+  /**
+   * Errors raised while handling a frame message happen inside an event
+   * listener, where the integrator cannot catch them. Route them to
+   * onSDKError instead of leaving an unhandled promise rejection.
+   */
+  const reportError = (error: unknown) => {
+    const sdkError = error instanceof Error ? error : new Error(String(error));
+    try {
+      if (events.onSDKError) {
+        events.onSDKError(sdkError);
+        return;
+      }
+    } catch (handlerError) {
+      console.error('[auco-sdk-integration]', handlerError);
+    }
+    console.error('[auco-sdk-integration]', sdkError);
+  };
+
+  function onMessage(event: MessageEvent) {
     // Same-origin iframes (two sign, or upload + read) must not hear each
     // other, so the source window has to be this iframe too.
     if (event.origin !== origin || event.source !== iframe.contentWindow)
       return;
+    if (!event.data || typeof event.data !== 'object') return;
+    handleMessage(event).catch(reportError);
+  }
+
+  async function handleMessage(event: MessageEvent) {
     if (event.data.ready) {
       iframe!.contentWindow?.postMessage(
         {
@@ -131,27 +164,32 @@ const setupEvents = (params: Config) => {
         event.data?.redirectTo ?? event.data?.status ?? '',
         event.data?.signProfile ?? []
       );
-      if (event.data?.status !== 'PENDING')
-        window.removeEventListener('message', onMessage);
+      if (event.data?.status !== 'PENDING') unsubscribe();
     }
 
+    // Without a handler the session must keep listening: sign sends
+    // SDK-CLOSE (with redirectTo) after SDK-FINISH, and upload-v2 restarts
+    // and sends ready again after SDK-BACK.
     if (event.data?.type === 'SDK-FINISH') {
       if (events.onSDKFinish) {
         await events.onSDKFinish();
-        window.removeEventListener('message', onMessage);
+        unsubscribe();
       }
     }
 
     if (event.data?.type === 'SDK-BACK') {
       if (events.onSDKBack) {
         await events.onSDKBack();
-        window.removeEventListener('message', onMessage);
+        unsubscribe();
       }
     }
   }
+
+  activeSessions.get(iframe)?.();
+  activeSessions.set(iframe, unsubscribe);
   window.addEventListener('message', onMessage);
   iframe.src = origin + '?id=' + uuid();
-  return onMessage;
+  return unsubscribe;
 };
 const getSDKURL: SDKTypeObjectKeys = {
   'upload-v2': 'https://uploadv2.auco.ai',
