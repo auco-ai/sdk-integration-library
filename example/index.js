@@ -32,7 +32,7 @@ function getConfig(files) {
         window.location.reload();
       },
     },
-    env: 'DEV',
+    env: 'INTERNAL',
     sdkData: {
       userAttributes: {
         email: 'email@auco.ai',

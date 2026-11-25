@@ -10,15 +10,28 @@ export type SDKs =
   | 'sign'
   | 'list-validation'
   | 'fill';
-export type EnvType = 'DEV' | 'STAGE' | 'PROD';
+/**
+ * - `PROD`: production.
+ * - `DEV` / `STAGE`: stage environment (production copy with a separate
+ *   database), the development environment for integrators.
+ * - `INTERNAL`: Auco's internal dev environment, only reachable by the Auco
+ *   team. Integrators must not use it.
+ */
+export type EnvType = 'DEV' | 'STAGE' | 'PROD' | 'INTERNAL';
 export type SDKTypeObjectKeys = {
-  [x in SDKs]: string;
+  [x in Exclude<SDKs, 'list-validation'>]: string;
 };
 export type SDKEvents = {
   onSDKReady: () => void;
   onSDKBack?: () => void;
   onSDKClose: (documentId?: string, redirectTo?: string) => void;
   onSDKFinish?: () => void;
+  /**
+   * Called when handling a message from the SDK fails: a missing callback
+   * the SDK needs (onSDKToken, onSDKPay) or an error thrown by one of your
+   * callbacks. Without it, the error is logged with console.error.
+   */
+  onSDKError?: (error: Error) => void;
   onSDKToken?: () => Promise<string>;
   onSDKPay?: (data: {
     code: string;
@@ -31,11 +44,50 @@ export type SDKEvents = {
     options,
   }: {
     message: string;
-    options: NotificationOptions;
+    options: SDKNotificationOptions;
   }) => void;
 };
+export interface UxOptions {
+  primaryColor: string;
+  alternateColor: string;
+  redirectUrl?: string;
+  hoverColor?: string;
+  icons?: {
+    gradient: string[];
+  };
+}
+
+export interface FlowValidations {
+  otpCode?: 'phone' | 'email';
+  selfie: boolean;
+  identification: boolean;
+  identificationCardBack: boolean;
+  flow: boolean;
+}
+
+export interface FlowEmailData {
+  name: string;
+  message: string;
+  subject: string;
+  expire?: Date;
+  remember?: '3' | '6' | '12' | '24' | '48';
+  notificationOff?: boolean;
+}
+
+/**
+ * Options sent with SDK-NOTIFICATION. Today only the sign read flow sends it,
+ * with tag 'Abandoned' when the reader leaves the tab.
+ */
+export interface SDKNotificationOptions {
+  tag?: string;
+}
+
 interface BaseConfig {
   keyPublic?: string;
+  /**
+   * @deprecated Never put a private key in browser code. This field is not
+   * sent to the SDK and will be removed in 2.0.0.
+   */
   keyPrivate?: string;
   country?: string;
   iframeId: string;
@@ -85,21 +137,8 @@ interface IFullFlowData {
   participants: (SignerAttributes | ReaderAttributes)[];
   files: File[];
   platform: 'whatsapp' | 'auco';
-  validations: {
-    otpCode?: 'phone' | 'email';
-    selfie: boolean;
-    identification: boolean;
-    identificationCardBack: boolean;
-    flow: boolean;
-  };
-  emailData: {
-    name: string;
-    message: string;
-    subject: string;
-    expire?: Date;
-    remember?: '3' | '6' | '12' | '24' | '48';
-    notificationOff?: boolean;
-  };
+  validations: FlowValidations;
+  emailData: FlowEmailData;
 }
 
 interface IEditFlowData {
@@ -109,21 +148,8 @@ interface IEditFlowData {
   participants?: (SignerAttributes | ReaderAttributes)[];
   files?: File[];
   platform?: 'whatsapp' | 'auco';
-  validations?: {
-    otpCode?: 'phone' | 'email';
-    selfie: boolean;
-    identification: boolean;
-    identificationCardBack: boolean;
-    flow: boolean;
-  };
-  emailData?: {
-    name: string;
-    message: string;
-    subject: string;
-    expire?: Date;
-    remember?: '3' | '6' | '12' | '24' | '48';
-    notificationOff?: boolean;
-  };
+  validations?: FlowValidations;
+  emailData?: FlowEmailData;
 }
 
 interface IFlowDataOnlyParticipants {
@@ -136,15 +162,7 @@ export interface SDKUploadData {
   users?: (SignerAttributes | ReaderAttributes)[];
   flowData?: IFullFlowData | IFlowDataOnlyParticipants | IEditFlowData;
   custom?: Record<string, unknown>;
-  uxOptions: {
-    primaryColor: string;
-    alternateColor: string;
-    redirectUrl?: string;
-    hoverColor?: string;
-    icons?: {
-      gradient: string[];
-    };
-  };
+  uxOptions: UxOptions;
 }
 interface SDKUpload extends Omit<BaseConfig, 'events'> {
   /**
@@ -220,15 +238,7 @@ interface SDKSign extends BaseConfig {
     document: string;
     image?: string;
     name?: string;
-    uxOptions: {
-      primaryColor: string;
-      alternateColor: string;
-      redirectUrl?: string;
-      hoverColor?: string;
-      icons?: {
-        gradient: string[];
-      };
-    };
+    uxOptions: UxOptions;
     signFlow?: 'document' | 'approve' | 'package' | 'read';
     /**
      * Remove "Your invitation" badge when user has multiple pending documents
@@ -255,17 +265,13 @@ interface SDKValidation extends Omit<BaseConfig, 'events'> {
      * code from /validate API response
      */
     document: string;
-    uxOptions: {
-      primaryColor: string;
-      alternateColor: string;
-      redirectUrl?: string;
-      hoverColor?: string;
-      icons?: {
-        gradient: string[];
-      };
-    };
+    uxOptions: UxOptions;
   };
 }
+/**
+ * @deprecated list-validation is no longer available: starting it throws.
+ * It will be removed in 2.0.0.
+ */
 interface SDKListValidation extends Omit<BaseConfig, 'events'> {
   sdkType: 'list-validation';
   sdkData: Omit<SDKUploadData, 'userAttributes'> & {
@@ -293,15 +299,7 @@ interface SDKFill extends BaseConfig {
      * reference if is filling a reusedocument
      */
     reference?: string;
-    uxOptions: {
-      primaryColor: string;
-      alternateColor: string;
-      redirectUrl?: string;
-      hoverColor?: string;
-      icons?: {
-        gradient: string[];
-      };
-    };
+    uxOptions: UxOptions;
   };
 }
 

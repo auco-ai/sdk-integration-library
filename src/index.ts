@@ -6,18 +6,21 @@ import {
   EnvType,
   LANGUAGES,
 } from './types';
-function uuid() {
-  const d = new Date();
-  const s = d.toISOString().replaceAll(':', '-');
-  return s;
-}
+
+export * from './types';
+
+/** Query param value that forces the iframe to skip the cache. */
+const cacheBuster = () => new Date().toISOString().replace(/:/g, '-');
+/**
+ * Teardown of the session currently attached to each iframe, so starting the
+ * SDK again on the same iframe replaces the previous session instead of
+ * stacking listeners.
+ */
+const activeSessions = new WeakMap<HTMLIFrameElement, () => void>();
+
 export const AucoSDK: TAucoSDK = params => {
   parametersValidation(params);
-  const messageFunc = setupEvents(params);
-  const unsuscribe = () => {
-    window.removeEventListener('message', messageFunc);
-  };
-  return unsuscribe;
+  return setupEvents(params);
 };
 
 const parametersValidation = (params: Config) => {
@@ -63,7 +66,7 @@ const setupEvents = (params: Config) => {
     env,
   } = params;
 
-  const origin = resolveOrigin(sdkType, env, keyPublic, customOrigin);
+  const { src, origin } = resolveOrigin(sdkType, env, customOrigin);
 
   const iframe = document.getElementById(iframeId) as HTMLIFrameElement;
 
@@ -73,16 +76,51 @@ const setupEvents = (params: Config) => {
     );
   }
 
-  if (keyPublic && keyPublic.length !== 36 && !events.onSDKToken) {
-    throw new Error('Could not start SDK, onSDKToken is missing');
-  }
-
   if (keyPublic && keyPublic.length !== 36) {
     throw new Error('Could not start SDK, invalid keyPublic');
   }
 
-  async function onMessage(event: MessageEvent) {
-    if (event.origin !== origin) return;
+  if (!keyPublic && !events.onSDKToken && requestsToken(params)) {
+    throw new Error(
+      `Could not start SDK, '${sdkType}' without keyPublic asks for a token, but there isn't a onSDKToken function provided`
+    );
+  }
+
+  const unsubscribe = () => {
+    window.removeEventListener('message', onMessage);
+    if (activeSessions.get(iframe) === unsubscribe) {
+      activeSessions.delete(iframe);
+    }
+  };
+
+  /**
+   * Errors raised while handling a frame message happen inside an event
+   * listener, where the integrator cannot catch them. Route them to
+   * onSDKError instead of leaving an unhandled promise rejection.
+   */
+  const reportError = (error: unknown) => {
+    const sdkError = error instanceof Error ? error : new Error(String(error));
+    try {
+      if (events.onSDKError) {
+        events.onSDKError(sdkError);
+        return;
+      }
+    } catch (handlerError) {
+      console.error('[auco-sdk-integration]', handlerError);
+    }
+    console.error('[auco-sdk-integration]', sdkError);
+  };
+
+  function onMessage(event: MessageEvent) {
+    // Same-origin iframes (two sign, or upload + read) must not hear each
+    // other, so the source window has to be this iframe too.
+    if (event.origin !== origin || event.source !== iframe.contentWindow)
+      return;
+    if (!event.data || typeof event.data !== 'object') return;
+    handleMessage(event).catch(reportError);
+  }
+
+  async function handleMessage(event: MessageEvent) {
     if (event.data.ready) {
       iframe!.contentWindow?.postMessage(
         {
@@ -97,7 +135,7 @@ const setupEvents = (params: Config) => {
       await events.onSDKReady();
       return;
     }
-    if (event.data?.type?.includes('token')) {
+    if (event.data.type === 'token') {
       if (!events.onSDKToken) {
         throw new Error(
           "Could not get token, SDK is asking for user token, but there isn't a onSDKToken function provided"
@@ -125,27 +163,32 @@ const setupEvents = (params: Config) => {
         event.data?.redirectTo ?? event.data?.status ?? '',
         event.data?.signProfile ?? []
       );
-      if (event.data?.status !== 'PENDING')
-        window.removeEventListener('message', onMessage);
+      if (event.data?.status !== 'PENDING') unsubscribe();
     }
 
+    // Without a handler the session must keep listening: sign sends
+    // SDK-CLOSE (with redirectTo) after SDK-FINISH, and upload-v2 restarts
+    // and sends ready again after SDK-BACK.
     if (event.data?.type === 'SDK-FINISH') {
       if (events.onSDKFinish) {
         await events.onSDKFinish();
-        window.removeEventListener('message', onMessage);
+        unsubscribe();
       }
     }
 
     if (event.data?.type === 'SDK-BACK') {
       if (events.onSDKBack) {
         await events.onSDKBack();
-        window.removeEventListener('message', onMessage);
+        unsubscribe();
       }
     }
   }
+
+  activeSessions.get(iframe)?.();
+  activeSessions.set(iframe, unsubscribe);
   window.addEventListener('message', onMessage);
-  iframe.src = origin + '?id=' + uuid();
-  return onMessage;
+  iframe.src = src + '?id=' + cacheBuster();
+  return unsubscribe;
 };
 const getSDKURL: SDKTypeObjectKeys = {
   'upload-v2': 'https://uploadv2.auco.ai',
@@ -155,7 +198,6 @@ const getSDKURL: SDKTypeObjectKeys = {
   read: 'https://upload.auco.ai',
   'validation-attachments': 'https://upload.auco.ai',
   validation: 'https://veriface.auco.ai',
-  'list-validation': '',
   fill: 'https://fill2.auco.ai',
 };
 
@@ -167,7 +209,6 @@ const getDevSDKURL: SDKTypeObjectKeys = {
   read: 'https://upload-stage.auco.ai',
   'validation-attachments': 'https://upload-stage.auco.ai',
   validation: 'https://veriface-stage.auco.ai',
-  'list-validation': '',
   fill: 'https://fill2-stage.auco.ai',
 };
 
@@ -179,25 +220,81 @@ const internalSDKDevURL: SDKTypeObjectKeys = {
   attachments: 'https://upload-dev.auco.ai',
   read: 'https://upload-dev.auco.ai',
   'validation-attachments': 'https://upload-dev.auco.ai',
-  'list-validation': '',
+  // fill has no dev environment, only stage and prod
   fill: 'https://fill2-stage.auco.ai',
 };
 
+/**
+ * Returns the URL to load in the iframe and the origin its messages must come
+ * from. Throws before touching the iframe when neither can be resolved.
+ */
 const resolveOrigin = (
   sdkType: SDKs,
   env: EnvType,
-  keyPublic?: string,
   customOrigin?: string
-) => {
-  if (customOrigin && customOrigin.length > 0) return customOrigin;
+): { src: string; origin: string } => {
+  if (customOrigin && customOrigin.length > 0) {
+    let url: URL | undefined;
+    try {
+      url = new URL(customOrigin);
+    } catch {
+      url = undefined;
+    }
+    if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) {
+      throw new Error(
+        `Could not start SDK, customOrigin is not a valid http(s) URL: '${customOrigin}'`
+      );
+    }
+    // event.origin never has a path or trailing slash, so compare against
+    // the parsed origin rather than the raw string.
+    return { src: customOrigin, origin: url.origin };
+  }
+  if (sdkType === 'list-validation') {
+    throw new Error(
+      "Could not start SDK, sdkType 'list-validation' is no longer available"
+    );
+  }
+  if (!Object.prototype.hasOwnProperty.call(getSDKURL, sdkType)) {
+    throw new Error(
+      `Could not start SDK, sdkType is missing or invalid, available options are ${Object.keys(
+        getSDKURL
+      )
+        .map(type => `'${type}'`)
+        .join(', ')}`
+    );
+  }
   /**
-   * No keyPublic means the caller is an Auco app authenticating through
-   * onSDKToken, and the dev environment is only reachable by those callers.
-   * External consumers asking for DEV or STAGE land on stage instead.
+   * The *-dev hosts are only reachable by the Auco team, so they require an
+   * explicit `INTERNAL` env. Integrators asking for DEV or STAGE land on stage.
    */
-  if (env === 'DEV' && !keyPublic) return internalSDKDevURL[sdkType];
-  if (env === 'DEV' || env === 'STAGE') return getDevSDKURL[sdkType];
-  return getSDKURL[sdkType];
+  const urls =
+    env === 'INTERNAL'
+      ? internalSDKDevURL
+      : env === 'DEV' || env === 'STAGE'
+      ? getDevSDKURL
+      : getSDKURL;
+  const url = urls[sdkType];
+  return { src: url, origin: url };
+};
+
+/**
+ * SDKs that request a token through onSDKToken when no keyPublic is given.
+ * sign only does it for a logged-in user (sdkData.email).
+ */
+const requestsToken = (params: Config) => {
+  switch (params.sdkType) {
+    case 'upload':
+    case 'upload-v2':
+    case 'read':
+    case 'attachments':
+    case 'validation-attachments':
+    case 'validation':
+      return true;
+    case 'sign':
+      return !!params.sdkData.email;
+    default:
+      return false;
+  }
 };
 
 const flowTypesUploadSDK = {

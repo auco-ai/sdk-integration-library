@@ -1,0 +1,94 @@
+import { AucoSDK, Config, EnvType } from '../src';
+
+const IFRAME_ID = 'auco-iframe';
+const uxOptions = { primaryColor: '#021c30', alternateColor: '#a557f2' };
+
+const unsubscribers: Array<() => void> = [];
+
+beforeEach(() => {
+  document.body.innerHTML = `<iframe id="${IFRAME_ID}"></iframe>`;
+});
+
+afterEach(() => {
+  unsubscribers.splice(0).forEach(unsubscribe => unsubscribe());
+});
+
+const loadedOrigin = (config: Config) => {
+  unsubscribers.push(AucoSDK(config));
+  const iframe = document.getElementById(IFRAME_ID) as HTMLIFrameElement;
+  return new URL(iframe.src).origin;
+};
+
+// Mirrors the public docs example for sign: no keyPublic, no onSDKToken.
+const signConfig = (env: EnvType, customOrigin?: string): Config => ({
+  iframeId: IFRAME_ID,
+  sdkType: 'sign',
+  language: 'es',
+  env,
+  customOrigin,
+  events: { onSDKReady: () => {}, onSDKClose: () => {} },
+  sdkData: { document: 'WO0J4L3YWBWE', uxOptions },
+});
+
+const uploadConfig = (env: EnvType): Config => ({
+  iframeId: IFRAME_ID,
+  sdkType: 'upload',
+  language: 'es',
+  env,
+  keyPublic: '00000000-0000-0000-0000-000000000000',
+  events: { onSDKReady: () => {}, onSDKClose: () => {} },
+  sdkData: { uxOptions },
+});
+
+describe('origin resolution', () => {
+  it.each([
+    ['PROD', 'https://sign.auco.ai'],
+    ['STAGE', 'https://sign-stage.auco.ai'],
+    ['DEV', 'https://sign-stage.auco.ai'],
+    ['INTERNAL', 'https://sign-dev.auco.ai'],
+  ] as const)('sign without keyPublic on %s loads %s', (env, expected) => {
+    expect(loadedOrigin(signConfig(env))).toBe(expected);
+  });
+
+  it.each([
+    ['PROD', 'https://upload.auco.ai'],
+    ['DEV', 'https://upload-stage.auco.ai'],
+    ['INTERNAL', 'https://upload-dev.auco.ai'],
+  ] as const)('upload with keyPublic on %s loads %s', (env, expected) => {
+    expect(loadedOrigin(uploadConfig(env))).toBe(expected);
+  });
+
+  it('customOrigin wins over env', () => {
+    expect(loadedOrigin(signConfig('INTERNAL', 'http://localhost:4200'))).toBe(
+      'http://localhost:4200'
+    );
+  });
+
+  it('fill has no dev environment, so INTERNAL loads stage', () => {
+    expect(
+      loadedOrigin({
+        ...signConfig('INTERNAL'),
+        sdkType: 'fill',
+        sdkData: { document: 'TEMPLATE', uxOptions },
+      } as Config)
+    ).toBe('https://fill2-stage.auco.ai');
+  });
+
+  it('throws for list-validation, which is no longer available', () => {
+    expect(() =>
+      AucoSDK({ ...signConfig('PROD'), sdkType: 'list-validation' } as Config)
+    ).toThrow(/list-validation/);
+  });
+
+  it('throws for an unknown sdkType', () => {
+    expect(() =>
+      AucoSDK(({ ...signConfig('PROD'), sdkType: 'nope' } as unknown) as Config)
+    ).toThrow(/sdkType is missing or invalid/);
+  });
+
+  it('throws for an invalid customOrigin', () => {
+    expect(() => AucoSDK(signConfig('PROD', 'localhost:4200'))).toThrow(
+      /customOrigin is not a valid http\(s\) URL/
+    );
+  });
+});
