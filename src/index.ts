@@ -79,10 +79,6 @@ const setupEvents = (params: Config) => {
     );
   }
 
-  if (keyPublic && keyPublic.length !== 36 && !events.onSDKToken) {
-    throw new Error('Could not start SDK, onSDKToken is missing');
-  }
-
   if (keyPublic && keyPublic.length !== 36) {
     throw new Error('Could not start SDK, invalid keyPublic');
   }
@@ -136,7 +132,7 @@ const setupEvents = (params: Config) => {
       await events.onSDKReady();
       return;
     }
-    if (event.data?.type?.includes('token')) {
+    if (event.data.type === 'token') {
       if (!events.onSDKToken) {
         throw new Error(
           "Could not get token, SDK is asking for user token, but there isn't a onSDKToken function provided"

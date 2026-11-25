@@ -72,6 +72,20 @@ describe('token', () => {
   });
 });
 
+describe('token type', () => {
+  it('only answers messages whose type is exactly token', async () => {
+    const onSDKToken = jest.fn().mockResolvedValue('jwt');
+    const { fromFrame, toFrame } = mount(
+      signConfig({
+        events: { onSDKReady: jest.fn(), onSDKClose: jest.fn(), onSDKToken },
+      })
+    );
+    await fromFrame({ type: 'refresh-token-expired' });
+    expect(onSDKToken).not.toHaveBeenCalled();
+    expect(toFrame).not.toHaveBeenCalled();
+  });
+});
+
 describe('frame events', () => {
   it('forwards SDK-PAY data to onSDKPay', async () => {
     const onSDKPay = jest.fn();
