@@ -19,7 +19,7 @@ export type SDKs =
  */
 export type EnvType = 'DEV' | 'STAGE' | 'PROD' | 'INTERNAL';
 export type SDKTypeObjectKeys = {
-  [x in SDKs]: string;
+  [x in Exclude<SDKs, 'list-validation'>]: string;
 };
 export type SDKEvents = {
   onSDKReady: () => void;
@@ -279,6 +279,10 @@ interface SDKValidation extends Omit<BaseConfig, 'events'> {
     };
   };
 }
+/**
+ * @deprecated list-validation is no longer available: starting it throws.
+ * It will be removed in 2.0.0.
+ */
 interface SDKListValidation extends Omit<BaseConfig, 'events'> {
   sdkType: 'list-validation';
   sdkData: Omit<SDKUploadData, 'userAttributes'> & {

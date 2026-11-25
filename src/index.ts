@@ -69,7 +69,7 @@ const setupEvents = (params: Config) => {
     env,
   } = params;
 
-  const origin = resolveOrigin(sdkType, env, customOrigin);
+  const { src, origin } = resolveOrigin(sdkType, env, customOrigin);
 
   const iframe = document.getElementById(iframeId) as HTMLIFrameElement;
 
@@ -188,7 +188,7 @@ const setupEvents = (params: Config) => {
   activeSessions.get(iframe)?.();
   activeSessions.set(iframe, unsubscribe);
   window.addEventListener('message', onMessage);
-  iframe.src = origin + '?id=' + uuid();
+  iframe.src = src + '?id=' + uuid();
   return unsubscribe;
 };
 const getSDKURL: SDKTypeObjectKeys = {
@@ -199,7 +199,6 @@ const getSDKURL: SDKTypeObjectKeys = {
   read: 'https://upload.auco.ai',
   'validation-attachments': 'https://upload.auco.ai',
   validation: 'https://veriface.auco.ai',
-  'list-validation': '',
   fill: 'https://fill2.auco.ai',
 };
 
@@ -211,7 +210,6 @@ const getDevSDKURL: SDKTypeObjectKeys = {
   read: 'https://upload-stage.auco.ai',
   'validation-attachments': 'https://upload-stage.auco.ai',
   validation: 'https://veriface-stage.auco.ai',
-  'list-validation': '',
   fill: 'https://fill2-stage.auco.ai',
 };
 
@@ -223,19 +221,61 @@ const internalSDKDevURL: SDKTypeObjectKeys = {
   attachments: 'https://upload-dev.auco.ai',
   read: 'https://upload-dev.auco.ai',
   'validation-attachments': 'https://upload-dev.auco.ai',
-  'list-validation': '',
+  // fill has no dev environment, only stage and prod
   fill: 'https://fill2-stage.auco.ai',
 };
 
-const resolveOrigin = (sdkType: SDKs, env: EnvType, customOrigin?: string) => {
-  if (customOrigin && customOrigin.length > 0) return customOrigin;
+/**
+ * Returns the URL to load in the iframe and the origin its messages must come
+ * from. Throws before touching the iframe when neither can be resolved.
+ */
+const resolveOrigin = (
+  sdkType: SDKs,
+  env: EnvType,
+  customOrigin?: string
+): { src: string; origin: string } => {
+  if (customOrigin && customOrigin.length > 0) {
+    let url: URL | undefined;
+    try {
+      url = new URL(customOrigin);
+    } catch {
+      url = undefined;
+    }
+    if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) {
+      throw new Error(
+        `Could not start SDK, customOrigin is not a valid http(s) URL: '${customOrigin}'`
+      );
+    }
+    // event.origin never has a path or trailing slash, so compare against
+    // the parsed origin rather than the raw string.
+    return { src: customOrigin, origin: url.origin };
+  }
+  if (sdkType === 'list-validation') {
+    throw new Error(
+      "Could not start SDK, sdkType 'list-validation' is no longer available"
+    );
+  }
+  if (!Object.prototype.hasOwnProperty.call(getSDKURL, sdkType)) {
+    throw new Error(
+      `Could not start SDK, sdkType is missing or invalid, available options are ${Object.keys(
+        getSDKURL
+      )
+        .map(type => `'${type}'`)
+        .join(', ')}`
+    );
+  }
   /**
    * The *-dev hosts are only reachable by the Auco team, so they require an
    * explicit `INTERNAL` env. Integrators asking for DEV or STAGE land on stage.
    */
-  if (env === 'INTERNAL') return internalSDKDevURL[sdkType];
-  if (env === 'DEV' || env === 'STAGE') return getDevSDKURL[sdkType];
-  return getSDKURL[sdkType];
+  const urls =
+    env === 'INTERNAL'
+      ? internalSDKDevURL
+      : env === 'DEV' || env === 'STAGE'
+      ? getDevSDKURL
+      : getSDKURL;
+  const url = urls[sdkType];
+  return { src: url, origin: url };
 };
 
 const flowTypesUploadSDK = {

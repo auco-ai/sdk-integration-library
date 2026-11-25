@@ -201,6 +201,14 @@ describe('public entry', () => {
 });
 
 describe('message filtering', () => {
+  it('accepts messages when customOrigin has a trailing slash or path', async () => {
+    const config = signConfig({ customOrigin: 'http://localhost:4200/' });
+    const { fromFrame, toFrame } = mount(config);
+    await fromFrame({ ready: true }, { from: 'http://localhost:4200' });
+    expect(config.events.onSDKReady).toHaveBeenCalledTimes(1);
+    expect(toFrame.mock.calls[0][1]).toBe('http://localhost:4200');
+  });
+
   it('ignores messages from another same-origin iframe', async () => {
     resetDom(['first', 'second']);
     const first = signConfig({ iframeId: 'first' });

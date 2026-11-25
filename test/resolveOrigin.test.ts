@@ -63,4 +63,32 @@ describe('origin resolution', () => {
       'http://localhost:4200'
     );
   });
+
+  it('fill has no dev environment, so INTERNAL loads stage', () => {
+    expect(
+      loadedOrigin({
+        ...signConfig('INTERNAL'),
+        sdkType: 'fill',
+        sdkData: { document: 'TEMPLATE', uxOptions },
+      } as Config)
+    ).toBe('https://fill2-stage.auco.ai');
+  });
+
+  it('throws for list-validation, which is no longer available', () => {
+    expect(() =>
+      AucoSDK({ ...signConfig('PROD'), sdkType: 'list-validation' } as Config)
+    ).toThrow(/list-validation/);
+  });
+
+  it('throws for an unknown sdkType', () => {
+    expect(() =>
+      AucoSDK(({ ...signConfig('PROD'), sdkType: 'nope' } as unknown) as Config)
+    ).toThrow(/sdkType is missing or invalid/);
+  });
+
+  it('throws for an invalid customOrigin', () => {
+    expect(() => AucoSDK(signConfig('PROD', 'localhost:4200'))).toThrow(
+      /customOrigin is not a valid http\(s\) URL/
+    );
+  });
 });
