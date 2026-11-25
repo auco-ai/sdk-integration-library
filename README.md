@@ -24,4 +24,4 @@ yarn add auco-sdk-integration
 pnpm add auco-sdk-integration
 ```
 
-Para ver la documentación de integración de cada SDK visita [docs.auco.ai](docs.auco.ai/sdk/intro)
+Para ver la documentación de integración de cada SDK visita [docs.auco.ai](https://docs.auco.ai/sdk/intro)
