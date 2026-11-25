@@ -1,3 +1,4 @@
+import { LANGUAGES } from '../src';
 import {
   mount,
   resetDom,
@@ -193,7 +194,38 @@ describe('listener lifecycle', () => {
   });
 });
 
+describe('public entry', () => {
+  it('exports the runtime constants of the types module', () => {
+    expect(LANGUAGES).toEqual(['es', 'en', 'pt', 'fr']);
+  });
+});
+
 describe('message filtering', () => {
+  it('ignores messages from another same-origin iframe', async () => {
+    resetDom(['first', 'second']);
+    const first = signConfig({ iframeId: 'first' });
+    const second = signConfig({ iframeId: 'second' });
+    const a = mount(first);
+    const b = mount(second);
+
+    await a.fromFrame({ ready: true });
+    await a.fromFrame({ type: 'SDK-CLOSE', document: 'DOC' });
+
+    expect(first.events.onSDKReady).toHaveBeenCalledTimes(1);
+    expect(first.events.onSDKClose).toHaveBeenCalledTimes(1);
+    expect(a.toFrame).toHaveBeenCalledTimes(1);
+    expect(second.events.onSDKReady).not.toHaveBeenCalled();
+    expect(second.events.onSDKClose).not.toHaveBeenCalled();
+    expect(b.toFrame).not.toHaveBeenCalled();
+  });
+
+  it('ignores messages without the iframe as source', async () => {
+    const config = signConfig();
+    const { fromFrame } = mount(config);
+    await fromFrame({ ready: true }, { source: null });
+    expect(config.events.onSDKReady).not.toHaveBeenCalled();
+  });
+
   it('ignores messages from another origin', async () => {
     const config = signConfig();
     const { fromFrame, toFrame } = mount(config);

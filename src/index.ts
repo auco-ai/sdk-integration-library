@@ -6,6 +6,9 @@ import {
   EnvType,
   LANGUAGES,
 } from './types';
+
+export * from './types';
+
 function uuid() {
   const d = new Date();
   const s = d.toISOString().replaceAll(':', '-');
@@ -82,7 +85,10 @@ const setupEvents = (params: Config) => {
   }
 
   async function onMessage(event: MessageEvent) {
-    if (event.origin !== origin) return;
+    // Same-origin iframes (two sign, or upload + read) must not hear each
+    // other, so the source window has to be this iframe too.
+    if (event.origin !== origin || event.source !== iframe.contentWindow)
+      return;
     if (event.data.ready) {
       iframe!.contentWindow?.postMessage(
         {

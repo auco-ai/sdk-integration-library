@@ -1,5 +1,4 @@
-import { AucoSDK } from '../src';
-import { Config } from '../src/types';
+import { AucoSDK, Config } from '../src';
 
 export const IFRAME_ID = 'auco-iframe';
 export const uxOptions = { primaryColor: '#021c30', alternateColor: '#a557f2' };
