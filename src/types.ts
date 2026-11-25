@@ -10,7 +10,14 @@ export type SDKs =
   | 'sign'
   | 'list-validation'
   | 'fill';
-export type EnvType = 'DEV' | 'STAGE' | 'PROD';
+/**
+ * - `PROD`: production.
+ * - `DEV` / `STAGE`: stage environment (production copy with a separate
+ *   database), the development environment for integrators.
+ * - `INTERNAL`: Auco's internal dev environment, only reachable by the Auco
+ *   team. Integrators must not use it.
+ */
+export type EnvType = 'DEV' | 'STAGE' | 'PROD' | 'INTERNAL';
 export type SDKTypeObjectKeys = {
   [x in SDKs]: string;
 };

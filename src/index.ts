@@ -63,7 +63,7 @@ const setupEvents = (params: Config) => {
     env,
   } = params;
 
-  const origin = resolveOrigin(sdkType, env, keyPublic, customOrigin);
+  const origin = resolveOrigin(sdkType, env, customOrigin);
 
   const iframe = document.getElementById(iframeId) as HTMLIFrameElement;
 
@@ -183,19 +183,13 @@ const internalSDKDevURL: SDKTypeObjectKeys = {
   fill: 'https://fill2-stage.auco.ai',
 };
 
-const resolveOrigin = (
-  sdkType: SDKs,
-  env: EnvType,
-  keyPublic?: string,
-  customOrigin?: string
-) => {
+const resolveOrigin = (sdkType: SDKs, env: EnvType, customOrigin?: string) => {
   if (customOrigin && customOrigin.length > 0) return customOrigin;
   /**
-   * No keyPublic means the caller is an Auco app authenticating through
-   * onSDKToken, and the dev environment is only reachable by those callers.
-   * External consumers asking for DEV or STAGE land on stage instead.
+   * The *-dev hosts are only reachable by the Auco team, so they require an
+   * explicit `INTERNAL` env. Integrators asking for DEV or STAGE land on stage.
    */
-  if (env === 'DEV' && !keyPublic) return internalSDKDevURL[sdkType];
+  if (env === 'INTERNAL') return internalSDKDevURL[sdkType];
   if (env === 'DEV' || env === 'STAGE') return getDevSDKURL[sdkType];
   return getSDKURL[sdkType];
 };
