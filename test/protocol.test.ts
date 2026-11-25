@@ -137,6 +137,7 @@ describe('frame events', () => {
     const { fromFrame } = mount(
       signConfig({
         sdkType: 'validation',
+        keyPublic: VALID_KEY,
         events: { onSDKReady: jest.fn(), onSDKClose },
       })
     );
@@ -355,5 +356,41 @@ describe('teardown', () => {
     const { unsubscribe } = mount(signConfig());
     unsubscribe();
     expect(() => unsubscribe()).not.toThrow();
+  });
+});
+
+describe('start-time validation', () => {
+  const noToken = { onSDKReady: jest.fn(), onSDKClose: jest.fn() };
+
+  it.each([
+    'upload',
+    'upload-v2',
+    'read',
+    'attachments',
+    'validation-attachments',
+    'validation',
+  ] as const)('requires onSDKToken for %s without keyPublic', sdkType => {
+    expect(() =>
+      mount(uploadConfig({ sdkType, keyPublic: undefined, events: noToken }))
+    ).toThrow(/onSDKToken/);
+  });
+
+  it('requires onSDKToken for sign with a logged-in user', () => {
+    expect(() =>
+      mount(
+        signConfig({
+          events: noToken,
+          sdkData: { document: 'WO0J4L3YWBWE', email: 'a@a.co', uxOptions },
+        } as any)
+      )
+    ).toThrow(/onSDKToken/);
+  });
+
+  it('does not require onSDKToken for sign without a user or with keyPublic', () => {
+    expect(() => mount(signConfig({ events: noToken }))).not.toThrow();
+    resetDom();
+    expect(() =>
+      mount(uploadConfig({ keyPublic: VALID_KEY, events: noToken }))
+    ).not.toThrow();
   });
 });

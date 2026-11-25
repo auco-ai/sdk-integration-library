@@ -9,11 +9,8 @@ import {
 
 export * from './types';
 
-function uuid() {
-  const d = new Date();
-  const s = d.toISOString().replaceAll(':', '-');
-  return s;
-}
+/** Query param value that forces the iframe to skip the cache. */
+const cacheBuster = () => new Date().toISOString().replace(/:/g, '-');
 /**
  * Teardown of the session currently attached to each iframe, so starting the
  * SDK again on the same iframe replaces the previous session instead of
@@ -81,6 +78,12 @@ const setupEvents = (params: Config) => {
 
   if (keyPublic && keyPublic.length !== 36) {
     throw new Error('Could not start SDK, invalid keyPublic');
+  }
+
+  if (!keyPublic && !events.onSDKToken && requestsToken(params)) {
+    throw new Error(
+      `Could not start SDK, '${sdkType}' without keyPublic asks for a token, but there isn't a onSDKToken function provided`
+    );
   }
 
   const unsubscribe = () => {
@@ -184,7 +187,7 @@ const setupEvents = (params: Config) => {
   activeSessions.get(iframe)?.();
   activeSessions.set(iframe, unsubscribe);
   window.addEventListener('message', onMessage);
-  iframe.src = src + '?id=' + uuid();
+  iframe.src = src + '?id=' + cacheBuster();
   return unsubscribe;
 };
 const getSDKURL: SDKTypeObjectKeys = {
@@ -272,6 +275,26 @@ const resolveOrigin = (
       : getSDKURL;
   const url = urls[sdkType];
   return { src: url, origin: url };
+};
+
+/**
+ * SDKs that request a token through onSDKToken when no keyPublic is given.
+ * sign only does it for a logged-in user (sdkData.email).
+ */
+const requestsToken = (params: Config) => {
+  switch (params.sdkType) {
+    case 'upload':
+    case 'upload-v2':
+    case 'read':
+    case 'attachments':
+    case 'validation-attachments':
+    case 'validation':
+      return true;
+    case 'sign':
+      return !!params.sdkData.email;
+    default:
+      return false;
+  }
 };
 
 const flowTypesUploadSDK = {
